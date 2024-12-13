@@ -40,7 +40,8 @@
 #define TFA989X_I2S_SEL_REG		0x0a
 #define TFA989X_I2S_SEL_REG_SPKR_MSK	GENMASK(10, 9)	/* speaker impedance */
 #define TFA989X_I2S_SEL_REG_DCFG_MSK	GENMASK(14, 11)	/* DCDC compensation */
-#define TFA989X_HIDE_UNHIDE_KEY	0x40
+#define TFA989X_HIDE_UNHIDE_KEY		0x40
+#define TFA9894_HIDE_UNHIDE_KEY		0x0F
 #define TFA989X_PWM_CONTROL		0x41
 #define TFA989X_CURRENTSENSE1		0x46
 #define TFA989X_CURRENTSENSE2		0x47
@@ -48,6 +49,7 @@
 #define TFA989X_CURRENTSENSE4		0x49
 
 #define TFA9890_REVISION		0x80
+#define TFA9894_REVISION		0x74
 #define TFA9895_REVISION		0x12
 #define TFA9897_REVISION		0x97
 
@@ -216,6 +218,105 @@ static const struct tfa989x_rev tfa9890_rev = {
 	.init	= tfa9890_init,
 };
 
+static int tfa9894_init(struct regmap *regmap)
+{
+	int ret, xor;
+
+	/* temporarily allow access to hidden registers */
+	ret = regmap_write(regmap, TFA9894_HIDE_UNHIDE_KEY, 0x5a6b);
+	if (ret)
+		return ret;
+
+	ret = regmap_read(regmap, 0xFB, &xor);
+	xor = xor ^ 0x005a;
+	ret = regmap_write(regmap, 0xA0, xor);
+	if (ret)
+	{
+		printk(KERN_ALERT "Failed to authenticate: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x52, 0xbe17);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x52: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x53, 0x0dbe);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x53: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x57, 0x0344);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x57: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x61, 0x0033);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x61: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x71, 0x6ecf);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x71: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x72, 0x34a9);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x72: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x73, 0x38c8);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x73: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x76, 0x0067);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x76: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x80, 0x0000);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x80: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x81, 0x5799);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x81: %d\n", ret);
+		return ret;
+	}
+
+	ret = regmap_write(regmap, 0x82, 0x0104);
+	if (ret) {
+		printk(KERN_ALERT "Failed to write register 0x82: %d\n", ret);
+		return ret;
+	}
+	return ret;
+
+	/* hide registers again */
+	ret = regmap_write(regmap, TFA9894_HIDE_UNHIDE_KEY, 0x0000);
+	if (ret)
+		return ret;
+
+	return ret;
+}
+
+
+static const struct tfa989x_rev tfa9894_rev = {
+	.rev	= TFA9894_REVISION,
+	.init	= tfa9894_init,
+};
+
 static const struct reg_sequence tfa9895_reg_init[] = {
 	/* some other registers must be set for optimal amplifier behaviour */
 	{ TFA989X_BAT_PROT, 0x13ab },
@@ -325,7 +426,7 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 
 	rev = device_get_match_data(dev);
 	if (!rev) {
-		dev_err(dev, "unknown device revision\n");
+		printk(KERN_ALERT "unknown device revision\n");
 		return -ENODEV;
 	}
 
@@ -353,7 +454,7 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 
 	ret = regulator_enable(tfa989x->vddd_supply);
 	if (ret) {
-		dev_err(dev, "Failed to enable vddd regulator: %d\n", ret);
+		printk(KERN_ALERT "Failed to enable vddd regulator: %d\n", ret);
 		return ret;
 	}
 
@@ -369,32 +470,32 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 
 	ret = regmap_read(regmap, TFA989X_REVISIONNUMBER, &val);
 	if (ret) {
-		dev_err(dev, "failed to read revision number: %d\n", ret);
+		printk(KERN_ALERT "failed to read revision number: %d\n", ret);
 		return ret;
 	}
 
 	val &= TFA989X_REVISIONNUMBER_REV_MSK;
 	if (val != rev->rev) {
-		dev_err(dev, "invalid revision number, expected %#x, got %#x\n",
+		printk(KERN_ALERT "invalid revision number, expected %#x, got %#x\n",
 			rev->rev, val);
 		return -ENODEV;
 	}
 
 	ret = regmap_write(regmap, TFA989X_SYS_CTRL, BIT(TFA989X_SYS_CTRL_I2CR));
 	if (ret) {
-		dev_err(dev, "failed to reset I2C registers: %d\n", ret);
+		printk(KERN_ALERT "failed to reset I2C registers: %d\n", ret);
 		return ret;
 	}
 
 	ret = rev->init(regmap);
 	if (ret) {
-		dev_err(dev, "failed to initialize registers: %d\n", ret);
+		printk(KERN_ALERT "failed to initialize registers: %d\n", ret);
 		return ret;
 	}
 
 	ret = tfa989x_dsp_bypass(regmap);
 	if (ret) {
-		dev_err(dev, "failed to enable DSP bypass: %d\n", ret);
+		printk(KERN_ALERT "failed to enable DSP bypass: %d\n", ret);
 		return ret;
 	}
 	regcache_cache_bypass(regmap, false);
@@ -405,6 +506,7 @@ static int tfa989x_i2c_probe(struct i2c_client *i2c)
 
 static const struct of_device_id tfa989x_of_match[] = {
 	{ .compatible = "nxp,tfa9890", .data = &tfa9890_rev },
+	{ .compatible = "nxp,tfa9894", .data = &tfa9894_rev },
 	{ .compatible = "nxp,tfa9895", .data = &tfa9895_rev },
 	{ .compatible = "nxp,tfa9897", .data = &tfa9897_rev },
 	{ }
